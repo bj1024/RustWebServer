@@ -31,35 +31,40 @@ fn main() {
 
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
     let pool = ThreadPool::new(4);
-
+    debug!("listn.");
     for stream in listener.incoming() {
-        let stream = stream.unwrap();
         
-        pool.execute(|| {
-            handle_connection(stream);
-        });
+         match stream {
+            Ok(stream) => {
+                debug!("incoming stream.{:?}",stream.peer_addr().unwrap());
+                pool.execute(|| {
+                    handle_connection(stream);
+                });
+            }
+            Err(e) => {error!("connection failed {:?}",e);}
+        }
     }
 }
 fn handle_connection(mut stream: TcpStream) {
     let mut buffer = [0; 1024];
     stream.read(&mut buffer).unwrap();
 
-    let get = b"GET / HTTP/1.1\r\n";
+    let get = b"GET / HTTP/";
 
-    debug!("cliennt req=[{}]",str::from_utf8(&buffer).unwrap());
+    trace!("cliennt req=[{}]",str::from_utf8(&buffer).unwrap());
 
-    let sleep = b"GET /sleep HTTP/1.1\r\n";
+    let sleep = b"GET /sleep HTTP/";
 
     let (status_line, filename) = if buffer.starts_with(get) {
-        debug!("GET /");
+        info!("GET /");
         ("HTTP/1.1 200 OK", "hello.html")
     } else if buffer.starts_with(sleep) {
-        debug!("GET /sleep");
-        thread::sleep(Duration::from_secs(5));
+        info!("[{:?}] GET /sleep",thread::current().name().unwrap_or("unknown thread"));
+        thread::sleep(Duration::from_secs(3));
         debug!("sleep done.");
         ("HTTP/1.1 200 OK", "hello.html")
     } else {
-        debug!("404 NOT FOUND.");
+        warn!("404 NOT FOUND.");
         ("HTTP/1.1 404 NOT FOUND", "404.html")
     };
 
