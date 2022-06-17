@@ -5,12 +5,15 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 
-
+enum Message {
+    NewJob(Job),
+    Terminate,
+}
 pub struct ThreadPool {
     workers: Vec<Worker>,
 
-    // 
-    sender: mpsc::Sender<Job>,  
+    // Jobと、Terminate Messageを送るChannel(sender)
+    sender: mpsc::Sender<Message>,  
 }
 
 
@@ -80,30 +83,68 @@ impl ThreadPool {
     {
         let job = Box::new(f);  // スマートポインタ。ヒープに割り当てられる。スコープを抜けると自動で解放される。
 
-        self.sender.send(job).unwrap(); //  チャネル経由で、関数ポインタ(JOB)を送信する。
+        self.sender.send(Message::NewJob(job)).unwrap(); //  チャネル経由で、関数ポインタ(JOB)を送信する。
+    }
+}
+
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        println!("Sending terminate message to all workers.");
+
+        // Threadの停止命令を送信
+        for _ in &self.workers {
+            self.sender.send(Message::Terminate).unwrap();
+        }
+        println!("Shutting down all workers.");
+
+        // Threadの停止を待機
+        for worker in &mut self.workers {
+            println!("Shutting down worker {}", worker.id);
+
+            // threadはOption。takeは変数にNoneを残しSome,Noneを取り出す。Takes the value out of the option, leaving a None in its place. https://doc.rust-lang.org/core/option/enum.Option.html#method.take
+            if let Some(thread) = worker.thread.take() {    
+                // Waits for the associated thread to finish.
+                // This function will return immediately if the associated thread has already finished.
+                thread.join().unwrap();
+            }
+        }
     }
 }
 
 struct Worker {
     id: usize,
-    thread: thread::JoinHandle<()>,
+    thread: Option<thread::JoinHandle<()>>,
 }
 
 
 impl Worker {
-    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Message>>>) -> Worker {
         let builder = thread::Builder::new()
             .name(format!("worker{}",id).into());
 
         let thread = builder.spawn(move || loop {       // loopで無限処理している。
-            let job = receiver.lock().expect("🟥🟥🟥　lock erorr.").recv().expect("🟥🟥🟥　recv erorr."); // チャネルのレシーバーをlockし、recvする。
+            let message = receiver.lock().expect("🟥🟥🟥　lock erorr.").recv().expect("🟥🟥🟥　recv erorr."); // チャネルのレシーバーをlockし、recvする。
 
-            debug!("Worker {} got a job; executing.", id);
+            match message {
+                Message::NewJob(job) => {
+                    println!("Worker {} got a job; executing.", id);
 
-            job();  // 関数ポインタ実行
+                    job();
+                }
+                Message::Terminate => {
+                    println!("Worker {} was told to terminate.", id);
+
+                    break;
+                }
+            }
+
+            // debug!("Worker {} got a job; executing.", id);
+
+            // job();  // 関数ポインタ実行
         }).unwrap();
  
 
-        Worker { id, thread }
+        Worker { id, 
+            thread:Some(thread) }
     }
 }

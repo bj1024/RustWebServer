@@ -32,8 +32,10 @@ fn main() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
     let pool = ThreadPool::new(4);
     debug!("listn.");
-    for stream in listener.incoming() {
-        
+
+    // Thread終了・解放を試すために、最初の２個だけ処理する。
+    // take はIterator trait に定義される。最初のN個だけ処理する。
+    for stream in listener.incoming().take(2){
          match stream {
             Ok(stream) => {
                 debug!("incoming stream.{:?}",stream.peer_addr().unwrap());
