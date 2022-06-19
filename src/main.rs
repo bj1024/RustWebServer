@@ -11,7 +11,14 @@ use std::time::Duration;
 use std::str;
 
 use rust_web_server::ThreadPool;
+use lazy_static::lazy_static;
+use std::sync::RwLock;
 
+
+
+lazy_static! {
+    static ref  CLIENT_NUM:RwLock<u32> = RwLock::new(0);
+}
 
 
 fn main() {    
@@ -27,46 +34,56 @@ fn main() {
     .format_indent(Some(20))
     .init();
 
-    debug!("start listner.");
+    let addr ="127.0.0.1:7878";
 
-    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+    debug!("start TcpListener. {}",addr);
+
+    let listener = TcpListener::bind(addr).unwrap();
     let pool = ThreadPool::new(4);
-    debug!("listn.");
+    // debug!("Listen");
 
     // Thread終了・解放を試すために、最初の２個だけ処理する。
     // take はIterator trait に定義される。最初のN個だけ処理する。
-    for stream in listener.incoming().take(2){
-         match stream {
+    // for stream in listener.incoming().take(2){
+    for stream in listener.incoming(){
+        let mut clinet_num_ptr = CLIENT_NUM.write().unwrap();
+        let num  = *clinet_num_ptr; 
+
+        // debug!("CLIENT_NUM=[{}]",num);
+        // let mut client_num_write = CLIENT_NUM.write().unwrap();
+        *clinet_num_ptr = *clinet_num_ptr + 1;
+        // *CLIENT_NUM +=1 ;
+
+            match stream {
             Ok(stream) => {
-                debug!("incoming stream.{:?}",stream.peer_addr().unwrap());
-                pool.execute(|| {
-                    handle_connection(stream);
+                debug!("incoming stream [{}] {:?}",num,stream.peer_addr().unwrap());
+                pool.execute(move || {
+                    handle_connection(num,stream);
                 });
             }
             Err(e) => {error!("connection failed {:?}",e);}
         }
     }
 }
-fn handle_connection(mut stream: TcpStream) {
+fn handle_connection(no:u32 ,mut stream: TcpStream) {
     let mut buffer = [0; 1024];
     stream.read(&mut buffer).unwrap();
 
     let get = b"GET / HTTP/";
 
-    trace!("cliennt req=[{}]",str::from_utf8(&buffer).unwrap());
-
+   
     let sleep = b"GET /sleep HTTP/";
-
+    let threadsig = format!("[{}][{}]",no,thread::current().name().unwrap_or("unknown thread"));
     let (status_line, filename) = if buffer.starts_with(get) {
-        info!("GET /");
+        info!("{} GET /",threadsig);
         ("HTTP/1.1 200 OK", "hello.html")
     } else if buffer.starts_with(sleep) {
-        info!("[{:?}] GET /sleep",thread::current().name().unwrap_or("unknown thread"));
+        info!("{} GET /sleep",threadsig);
         thread::sleep(Duration::from_secs(3));
-        debug!("sleep done.");
+        // debug!("sleep done.");
         ("HTTP/1.1 200 OK", "hello.html")
     } else {
-        warn!("404 NOT FOUND.");
+        warn!("{} 404 NOT FOUND.req=[{}]",threadsig,str::from_utf8(&buffer).unwrap());
         ("HTTP/1.1 404 NOT FOUND", "404.html")
     };
 
