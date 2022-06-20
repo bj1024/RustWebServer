@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use lazy_static::lazy_static;
 use rust_web_server::ThreadPool;
-use std::env;
+
 use std::sync::RwLock;
 
 lazy_static! {
@@ -38,6 +38,13 @@ fn main() {
     debug!("start TcpListener. {}", addr);
 
     let listener = TcpListener::bind(addr).unwrap();
+    // listener.set_nonblocking(true).expect("Cannot set non-blocking");
+
+    ctrlc::set_handler(move || {
+        println!("received Ctrl+C!");
+    })
+    .expect("Error setting Ctrl-C handler");
+
     let pool = ThreadPool::new(4);
     // debug!("Listen");
 
@@ -64,6 +71,13 @@ fn main() {
                     handle_connection(num, stream);
                 });
             }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // wait until network socket is ready, typically implemented
+                // via platform-specific APIs such as epoll or IOCP
+                // wait_for_fd();
+                continue;
+            }
+            Err(e) => panic!("encountered IO error: {e}"),
             Err(e) => {
                 error!("connection failed {:?}", e);
             }
@@ -107,8 +121,8 @@ fn handle_connection(no: u32, mut stream: TcpStream) {
 
     let response = match fs::read_to_string(filepath) {
         Ok(v) => format!(
-        "{}\r\nContent-Length: {}\r\n\r\n{}",
-        status_line,
+            "{}\r\nContent-Length: {}\r\n\r\n{}",
+            status_line,
             v.len(),
             v
         ),
