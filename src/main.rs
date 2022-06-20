@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate log;
 use env_logger::Env;
+use std::error::Error;
 
 use std::fs;
 use std::io::prelude::*;
@@ -12,6 +13,7 @@ use std::time::Duration;
 
 use lazy_static::lazy_static;
 use rust_web_server::ThreadPool;
+use std::env;
 use std::sync::RwLock;
 
 lazy_static! {
@@ -69,6 +71,12 @@ fn main() {
     }
 }
 fn handle_connection(no: u32, mut stream: TcpStream) {
+    // let content_path = env::current_exe()
+    //     .unwrap()
+    //     .parent()
+    //     .unwrap()
+    //     .join("contents");
+    let content_path = std::path::PathBuf::from("./contents");
     let mut buffer = [0; 1024];
     stream.read(&mut buffer).unwrap();
 
@@ -80,31 +88,40 @@ fn handle_connection(no: u32, mut stream: TcpStream) {
         no,
         thread::current().name().unwrap_or("unknown thread")
     );
-    let (status_line, filename) = if buffer.starts_with(get) {
+    let (status_line, filepath) = if buffer.starts_with(get) {
         info!("{} GET /", threadsig);
-        ("HTTP/1.1 200 OK", "hello.html")
+        ("HTTP/1.1 200 OK", content_path.join("hello.html"))
     } else if buffer.starts_with(sleep) {
         info!("{} GET /sleep", threadsig);
         thread::sleep(Duration::from_secs(3));
         // debug!("sleep done.");
-        ("HTTP/1.1 200 OK", "hello.html")
+        ("HTTP/1.1 200 OK", content_path.join("hello.html"))
     } else {
         warn!(
             "{} 404 NOT FOUND.req=[{}]",
             threadsig,
             str::from_utf8(&buffer).unwrap()
         );
-        ("HTTP/1.1 404 NOT FOUND", "404.html")
+        ("HTTP/1.1 404 NOT FOUND", content_path.join("404.html"))
     };
 
-    let contents = fs::read_to_string(filename).unwrap();
-
-    let response = format!(
+    let response = match fs::read_to_string(filepath) {
+        Ok(v) => format!(
         "{}\r\nContent-Length: {}\r\n\r\n{}",
         status_line,
-        contents.len(),
-        contents
-    );
+            v.len(),
+            v
+        ),
+        Err(e) => {
+            let content = format!("Internal Server Error\r\n{e}");
+            format!(
+                "{}\r\nContent-Length: {}\r\n\r\n{}",
+                "HTTP/1.1 500 Internal Server Error",
+                content.len(),
+                content
+            )
+        }
+    };
 
     stream.write(response.as_bytes()).unwrap();
     stream.flush().unwrap();
